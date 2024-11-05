@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      0.0.2
+// @version      0.0.3
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -350,6 +350,50 @@ const transcode_resample = async () => {
   show_transcoding_output(output_file, output_url, transcoder_container)
 }
 
+// ----------------------------------------------------------------------------- format data structure: validation
+
+const validate_format = (format, callback) => {
+  if (!format || !format.url) {
+    callback()
+    return
+  }
+
+  const http = new XMLHttpRequest()
+  http.open('HEAD', format.url)
+  http.onreadystatechange = function() {
+    if (this.readyState == this.DONE) {
+      format.urlStatus = this.status
+      callback()
+    }
+  }
+  http.send()
+}
+
+const validate_formats = (callback) => {
+  if (!state.formats || !state.formats.length) {
+    callback()
+    return
+  }
+
+  let done_counter = 0
+  const cb = () => {
+    done_counter++
+
+    if (done_counter === state.formats.length) {
+      state.formats = state.formats.filter(format => (format.urlStatus >= 200) && (format.urlStatus < 300))
+      callback()
+    }
+  }
+
+  for (let format of state.formats) {
+    validate_format(format, cb)
+  }
+}
+
+const validate_formats_async = () => new Promise(resolve => {
+  validate_formats(resolve)
+})
+
 // ----------------------------------------------------------------------------- normalize dependencies
 
 try {
@@ -383,6 +427,8 @@ const init = async () => {
 
   state.formats = info.formats
   info = null
+
+  await validate_formats_async()
 
   add_transcode_media_button()
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      0.0.6
+// @version      0.0.7
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -369,7 +369,7 @@ const validate_format = (format, callback) => {
 
   const xhr = new XMLHttpRequest()
   xhr.open('HEAD', format.url, true)
-  xhr.timeout = 2000
+  xhr.timeout = 5000
   xhr.onreadystatechange = function() {
     if (xhr.readyState === XMLHttpRequest.DONE) {
       format.urlStatus = xhr.status || 0

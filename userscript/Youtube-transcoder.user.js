@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      0.0.4
+// @version      0.0.5
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -407,6 +407,40 @@ const validate_formats_async = () => new Promise(resolve => {
   validate_formats(resolve)
 })
 
+// ----------------------------------------------------------------------------- format data structure: normalization
+
+const normalize_formats = () => {
+  if (!state.formats || !state.formats.length) return
+
+  state.formats = state.formats
+    .filter(format => !!format && (typeof format === 'object') && format.url && (format.hasVideo || format.hasAudio))
+    .sort((a,b) => {
+      // sort formats by bitrate in decreasing order
+      return (a.bitrate < b.bitrate)
+        ? 1 : (a.bitrate === b.bitrate)
+        ?  0 : -1
+    })
+}
+
+// ----------------------------------------------------------------------------- format data structure: remove duplicates
+
+const dedupe_formats = () => {
+  if (!state.formats || !state.formats.length) return
+
+  let previous_itag = null
+
+  state.formats = state.formats
+    .filter(format => {
+      if (format.itag) {
+        if (format.itag === previous_itag) {
+          return false
+        }
+        previous_itag = format.itag
+      }
+      return true
+    })
+}
+
 // ----------------------------------------------------------------------------- normalize dependencies
 
 try {
@@ -441,7 +475,10 @@ const init = async () => {
   state.formats = info.formats
   info = null
 
+  // important: perform normalization BEFORE removing duplicates
   await validate_formats_async()
+  normalize_formats()
+  dedupe_formats()
 
   add_transcode_media_button()
 }

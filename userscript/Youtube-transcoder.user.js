@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      0.0.7
+// @version      0.0.8
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -34,6 +34,12 @@
 // https://github.com/ffmpegwasm/ffmpeg.wasm/blob/v0.12.10/packages/ffmpeg/src/worker.ts#L76-L91
 // https://github.com/ffmpegwasm/ffmpeg.wasm/blob/v0.12.10/packages/util/src/index.ts#L49
 // https://github.com/ffmpegwasm/ffmpeg.wasm/blob/v0.12.10/apps/vanilla-app/public/transcode.html
+
+// ----------------------------------------------------------------------------- config options
+
+const user_options = {
+  "debug_verbosity": 3  // 0 = silent. 1 = console log. 2 = window alert. 3 = window alert + breakpoint in ffmpeg.wasm progress handler.
+}
 
 // ----------------------------------------------------------------------------- constants
 
@@ -84,6 +90,30 @@ const add_default_trusted_type_policy = () => {
     }
     catch(e) {}
   }
+}
+
+// ----------------------------------------------------------------------------- debug logger
+
+const debug = (msg, breakpoint) => {
+  if (!user_options.debug_verbosity) return
+
+  if (msg) {
+    if (typeof msg !== 'string')
+      msg = JSON.stringify(msg, null, 2)
+
+    switch(user_options.debug_verbosity) {
+      case 1:
+        console.log(msg)
+        break
+      case 2:
+      case 3:
+        window.alert(msg)
+        break
+    }
+  }
+
+  if (breakpoint && (user_options.debug_verbosity > 2))
+    debugger;
 }
 
 // ----------------------------------------------------------------------------- helpers
@@ -233,6 +263,8 @@ const show_transcoding_progress = (transcoder_container) => {
 }
 
 const update_transcoding_progress = (data) => {
+  debug(data, true)
+
   // round to 2 decimal places
   document.getElementById(constants.element_id.transcoding_progress).textContent = String(Math.floor(data.progress * 10000) / 100) + '%'
 }
@@ -480,6 +512,7 @@ const init = async () => {
   await validate_formats_async()
   normalize_formats()
   dedupe_formats()
+  debug('number of formats that are both distinct and available: ' + state.formats.length)
 
   add_transcode_media_button()
 }

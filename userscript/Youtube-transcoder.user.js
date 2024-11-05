@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      0.0.5
+// @version      0.0.6
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -330,7 +330,8 @@ const transcode_resample = async () => {
   const audio_format = state.formats.find(format => format.itag === audio_format_itag)
   if (!audio_format) return
 
-  const audio_url = audio_format.url
+  const audio_url     = audio_format.url
+  const audio_bitrate = (audio_format.audioBitrate || 128) + 'k'
   if (!audio_url) return
 
   const transcoder_container = get_transcoder_container()
@@ -343,7 +344,7 @@ const transcode_resample = async () => {
   ffmpeg.setLogger(console.log)
   ffmpeg.setProgress(update_transcoding_progress)
   await ffmpeg.FS.writeFile(input_audio, await window.FFmpegUtil.fetchFile(audio_url))
-  await ffmpeg.exec('-i', input_audio, '-ar', '44100', '-ac', '2', '-b:a', '128k', '-c:a', 'libmp3lame', '-q:a', '0', output_file)
+  await ffmpeg.exec('-i', input_audio, '-ar', '44100', '-ac', '2', '-b:a', audio_bitrate, '-c:a', 'libmp3lame', '-q:a', '0', output_file)
   const data = await ffmpeg.FS.readFile(output_file, {encoding: 'binary'})
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'audio/mpeg'}))
 

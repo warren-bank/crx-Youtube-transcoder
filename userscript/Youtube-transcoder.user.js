@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      0.0.1
+// @version      0.0.2
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
 // @match        *://*.youtube.com/watch?v=*
 // @match        *://*.youtube.com/embed/*
 // @icon         https://www.youtube.com/favicon.ico
-// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@4.14.4-distubejs.4/dist/es2020/ytdl-core.js
+// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@6.0.5-ybd-project.1/dist/es2020/ytdl-core.js
 // @require      https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js
 // @require      https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js
 // @resource     wasmURL  https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm
@@ -197,7 +197,7 @@ const show_transcoder_options = () => {
   html = state.formats
     .filter(format => !!format.hasVideo)
     .sort((a, b) => b.bitrate - a.bitrate)
-    .map(format => `<option value="${format.itag}">${format.container} @ ${format.qualityLabel}, ${Math.floor(format.bitrate / 1000)} kbps</option>`)
+    .map(format => `<option value="${format.itag}">${format.container} @ ${Math.floor(format.bitrate / 1000)} kbps, ${format.quality?.label || format.quality?.text || ''}</option>`)
   html.unshift('<option value="">[none]</option>')
   transcoder_container.querySelector('#' + constants.element_id.select_video_format).innerHTML = html.join("\n")
 
@@ -205,7 +205,7 @@ const show_transcoder_options = () => {
   html = state.formats
     .filter(format => !!format.hasAudio)
     .sort((a, b) => b.audioBitrate - a.audioBitrate)
-    .map(format => `<option value="${format.itag}">${format.container} @ ${format.audioSampleRate} Hz, ${format.audioBitrate} kbps</option>`)
+    .map(format => `<option value="${format.itag}">${format.container} @ ${format.audioBitrate} kbps</option>`)
   html.unshift('<option value="">[none]</option>')
   transcoder_container.querySelector('#' + constants.element_id.select_audio_format).innerHTML = html.join("\n")
 
@@ -367,18 +367,27 @@ catch(e) {}
 // ----------------------------------------------------------------------------- bootstrap
 
 const init = async () => {
-  let info = await window.ytdl.getInfo(window.location.href)
+  add_default_trusted_type_policy()
+
+  const ytdl = new window.Ytdl.YtdlCore({
+    logDisplay: ['debug', 'info', 'success', 'warning', 'error'],
+    disableInitialSetup: false,
+    disableBasicCache: true,
+    disableFileCache: true,
+    disablePoTokenAutoGeneration: true,
+    noUpdate: true
+  })
+
+  let info = await ytdl.getFullInfo(window.location.href)
   if (!info || !info.formats || !info.formats.length) return
 
   state.formats = info.formats
   info = null
 
-  add_default_trusted_type_policy()
-
   add_transcode_media_button()
 }
 
-if (window.ytdl && window.FFmpegUtil && window.createFFmpegCore) {
+if (window.Ytdl && window.Ytdl.YtdlCore && window.FFmpegUtil && window.createFFmpegCore) {
   init()
 }
 

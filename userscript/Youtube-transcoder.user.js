@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      1.0.0
+// @version      1.1.0
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -38,7 +38,8 @@
 // ----------------------------------------------------------------------------- config options
 
 const user_options = {
-  "debug_verbosity": 0  // 0 = silent. 1 = console log. 2 = window alert. 3 = window alert + breakpoint in ffmpeg.wasm progress handler.
+  "debug_verbosity": 0,  // 0 = silent. 1 = console log. 2 = window alert. 3 = window alert + breakpoint in ffmpeg.wasm progress handler.
+  "cacheWasmBinary": true
 }
 
 // ----------------------------------------------------------------------------- constants
@@ -71,7 +72,8 @@ const constants = {
 // ----------------------------------------------------------------------------- state
 
 const state = {
-  formats: null
+  formats: null,
+  wasmBinary: null
 }
 
 // ----------------------------------------------------------------------------- CSP
@@ -284,14 +286,44 @@ const show_transcoding_output = (output_file, output_url, transcoder_container) 
 
 // ----------------------------------------------------------------------------- transcoder: helper
 
-const getFFmpegCoreOptions = () => {
+const getFFmpegCoreOptions = async () => {
   const coreURL   = 'http://localhost/'
   const workerURL = `${coreURL}ffmpeg-core.worker.js`
-  let wasmURL     = GM_getResourceURL('wasmURL')
+  let wasmURL, wasmBinary
 
-  let index = wasmURL.indexOf(',')
-  wasmURL = wasmURL.substring(index + 1, wasmURL.length)
-  const wasmBinary = base64ToArrayBuffer(wasmURL)
+  if (state.wasmBinary) {
+    wasmBinary = state.wasmBinary.slice(0)
+  }
+  else {
+    wasmBinary = null
+    wasmURL    = GM_getResourceURL('wasmURL')
+    debug('resource "wasmURL": ' + (wasmURL ? wasmURL.substring(0, 100) : 'null'), true)
+
+    if (wasmURL) {
+      if (wasmURL.substring(0, 5) === 'data:') {
+        const index = wasmURL.indexOf(',')
+        wasmURL     = wasmURL.substring(index + 1, wasmURL.length)
+        wasmBinary  = base64ToArrayBuffer(wasmURL)
+      }
+      else if (wasmURL.substring(0, 5) === 'blob:') {
+        // TODO
+      }
+    }
+    else {
+      wasmURL    = `${coreURL}ffmpeg-core.wasm`
+      const res  = await fetch(wasmURL)
+      wasmBinary = await res.arrayBuffer()
+    }
+
+    if (wasmBinary) {
+      debug('size of "wasmBinary": ' + wasmBinary.byteLength + ' bytes')
+
+      if (user_options.cacheWasmBinary) {
+        state.wasmBinary = wasmBinary.slice(0)
+      }
+    }
+  }
+
   wasmURL = 'data:application/octet-stream;base64,'
 
   const mainScriptUrlOrBlob = `${coreURL}#${btoa(
@@ -337,10 +369,11 @@ const transcode_copy_and_combine = async () => {
   const transcoder_container = get_transcoder_container()
   show_transcoding_progress(transcoder_container)
 
-  const input_video = `video.${video_format.container}`
-  const input_audio = `audio.${audio_format.container}`
-  const output_file = 'output.mp4'
-  const ffmpeg = await window.createFFmpegCore(getFFmpegCoreOptions())
+  const input_video    = `video.${video_format.container}`
+  const input_audio    = `audio.${audio_format.container}`
+  const output_file    = 'output.mp4'
+  const ffmpeg_options = await getFFmpegCoreOptions()
+  const ffmpeg         = await window.createFFmpegCore(ffmpeg_options)
 
   ffmpeg.setLogger(console.log)
   ffmpeg.setProgress(update_transcoding_progress)
@@ -369,9 +402,10 @@ const transcode_resample = async () => {
   const transcoder_container = get_transcoder_container()
   show_transcoding_progress(transcoder_container)
 
-  const input_audio = `audio.${audio_format.container}`
-  const output_file = 'output.mp3'
-  const ffmpeg = await window.createFFmpegCore(getFFmpegCoreOptions())
+  const input_audio    = `audio.${audio_format.container}`
+  const output_file    = 'output.mp3'
+  const ffmpeg_options = await getFFmpegCoreOptions()
+  const ffmpeg         = await window.createFFmpegCore(ffmpeg_options)
 
   ffmpeg.setLogger(console.log)
   ffmpeg.setProgress(update_transcoding_progress)
@@ -491,6 +525,7 @@ catch(e) {}
 // ----------------------------------------------------------------------------- bootstrap
 
 const init = async () => {
+  debug('starting to initialize..')
   add_default_trusted_type_policy()
 
   const ytdl = new window.Ytdl.YtdlCore({

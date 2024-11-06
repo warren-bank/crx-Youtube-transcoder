@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      1.1.0
+// @version      1.1.1
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -258,7 +258,7 @@ const show_transcoding_progress = (transcoder_container) => {
 
   empty_element(transcoder_container, `
     <div style="${constants.inline_css.div_transcoding_progress}">
-      <span>${constants.notification_text.transcoding_progress_label} </span><span id="${constants.element_id.transcoding_progress}"></span>
+      <span>${constants.notification_text.transcoding_progress_label} </span><span id="${constants.element_id.span_transcoding_progress}"></span>
     </div>
   `)
   update_transcoding_progress({progress: 0})
@@ -268,7 +268,7 @@ const update_transcoding_progress = (data) => {
   debug(data, true)
 
   // round to 2 decimal places
-  document.getElementById(constants.element_id.transcoding_progress).textContent = String(Math.floor(data.progress * 10000) / 100) + '%'
+  document.getElementById(constants.element_id.span_transcoding_progress).textContent = String(Math.floor(data.progress * 10000) / 100) + '%'
 }
 
 const show_transcoding_output = (output_file, output_url, transcoder_container) => {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.0.0
+// @version      2.1.0
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -30,7 +30,8 @@
 
 const user_options = {
   "debug_verbosity": 0,  // 0 = silent. 1 = console log. 2 = window alert. 3 = window alert + breakpoint in ffmpeg.wasm progress handler.
-  "cacheWasmBinary": true
+  "cacheWasmBinary": true,
+  "displayOutput":   true
 }
 
 // ----------------------------------------------------------------------------- constants
@@ -42,7 +43,8 @@ const constants = {
     select_audio_format: "select_audio_format",
     button_copy_and_combine: "button_copy_and_combine",
     button_resample: "button_resample",
-    span_transcoding_progress: "span_transcoding_progress"
+    span_transcoding_progress: "span_transcoding_progress",
+    pre_transcoding_output: "pre_transcoding_output"
   },
   button_text: {
     transcode_media: "Transcode Media",
@@ -56,7 +58,8 @@ const constants = {
   inline_css: {
     button: "background-color: #065fd4; color: #fff; padding: 10px 15px; border-radius: 18px; border-style: none; outline: none; font-weight: bold; cursor: pointer;",
     table_transcoder_options: "background-color: white; padding: 2em; border: 1px solid #000;",
-    div_transcoding_progress: "background-color: white; padding: 1em; border: 1px solid #000; font-size: 1.5em;"
+    div_transcoding_progress: "background-color: white; padding: 1em; border: 1px solid #000; font-size: 1.5em;",
+    pre_transcoding_output: "width: 400px; max-height: 400px; overflow: auto; margin-top: 1em; background-color: white; padding: 0.5em; border: 1px solid #000;"
   }
 }
 
@@ -251,18 +254,31 @@ const show_transcoding_progress = (transcoder_container) => {
     <div style="${constants.inline_css.div_transcoding_progress}">
       <span>${constants.notification_text.transcoding_progress_label} </span><span id="${constants.element_id.span_transcoding_progress}"></span>
     </div>
-  `)
+  ` + (user_options.displayOutput ? `
+    <pre id="${constants.element_id.pre_transcoding_output}" style="${constants.inline_css.pre_transcoding_output}">${"FFmpeg output:\n\n"}</pre>
+  ` : ''))
+
   update_transcoding_progress({progress: 0})
 }
 
-const update_transcoding_progress = (data) => {
-  debug(data, true)
-
-  // round to 2 decimal places
-  document.getElementById(constants.element_id.span_transcoding_progress).textContent = String(Math.floor(data.progress * 10000) / 100) + '%'
+const update_transcoding_progress = (event) => {
+  debug(event, true)
+  if (event && (typeof event === 'object') && (typeof event.progress === 'number')) {
+    // round to 2 decimal places
+    document.getElementById(constants.element_id.span_transcoding_progress).textContent = String(Math.floor(event.progress * 10000) / 100) + '%'
+  }
 }
 
-const show_transcoding_output = (output_file, output_url, transcoder_container) => {
+const update_transcoding_output = (event) => {
+  debug(event)
+  if (user_options.displayOutput && event && (typeof event === 'object') && ((event.type === 'stdout') || (event.type === 'stderr')) && event.message) {
+    document.getElementById(constants.element_id.pre_transcoding_output).appendChild(
+      document.createTextNode(event.message + "\n")
+    )
+  }
+}
+
+const show_transcoding_result = (output_file, output_url, transcoder_container) => {
   if (!transcoder_container)
     transcoder_container = get_transcoder_container()
 
@@ -365,8 +381,8 @@ const transcode_copy_and_combine = async () => {
   const output_file    = 'output.mp4'
   const ffmpeg         = new window.FFmpegWASM.FFmpeg()
 
-  ffmpeg.on('log',      console.log)
   ffmpeg.on('progress', update_transcoding_progress)
+  ffmpeg.on('log',      update_transcoding_output)
 
   await ffmpeg.load(await getFFMessageLoadConfig())
   await ffmpeg.writeFile(input_video, await window.FFmpegUtil.fetchFile(video_url))
@@ -375,7 +391,7 @@ const transcode_copy_and_combine = async () => {
   const data = await ffmpeg.readFile(output_file, 'binary')
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'video/mp4'}))
 
-  show_transcoding_output(output_file, output_url, transcoder_container)
+  show_transcoding_result(output_file, output_url, transcoder_container)
 }
 
 // ----------------------------------------------------------------------------- transcoder: resample
@@ -398,8 +414,8 @@ const transcode_resample = async () => {
   const output_file    = 'output.mp3'
   const ffmpeg         = new window.FFmpegWASM.FFmpeg()
 
-  ffmpeg.on('log',      console.log)
   ffmpeg.on('progress', update_transcoding_progress)
+  ffmpeg.on('log',      update_transcoding_output)
 
   await ffmpeg.load(await getFFMessageLoadConfig())
   await ffmpeg.writeFile(input_audio, await window.FFmpegUtil.fetchFile(audio_url))
@@ -407,7 +423,7 @@ const transcode_resample = async () => {
   const data = await ffmpeg.readFile(output_file, 'binary')
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'audio/mpeg'}))
 
-  show_transcoding_output(output_file, output_url, transcoder_container)
+  show_transcoding_result(output_file, output_url, transcoder_container)
 }
 
 // ----------------------------------------------------------------------------- format data structure: validation

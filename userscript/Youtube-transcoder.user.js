@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      1.1.1
+// @version      2.0.0
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -9,9 +9,11 @@
 // @match        *://*.youtube.com/embed/*
 // @icon         https://www.youtube.com/favicon.ico
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@6.0.5-ybd-project.1/dist/es2020/ytdl-core.js
+// @require      https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.2/dist/umd/ffmpeg.js
 // @require      https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js
-// @require      https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js
-// @resource     wasmURL  https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm
+// @resource     classWorkerURL  https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.2/dist/umd/111.ffmpeg.js
+// @resource     coreURL         https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js
+// @resource     wasmURL         https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm
 // @run-at       document_end
 // @grant        unsafeWindow
 // @grant        GM_getResourceURL
@@ -23,17 +25,6 @@
 // @author       Warren Bank
 // @copyright    Warren Bank
 // ==/UserScript==
-
-// ----------------------------------------------------------------------------- references
-
-// https://www.jsdelivr.com/package/npm/@ffmpeg/core
-// https://cdn.jsdelivr.net/npm/@ffmpeg/core/
-
-// https://github.com/ffmpegwasm/ffmpeg.wasm/releases
-// https://github.com/ffmpegwasm/ffmpeg.wasm/releases/tag/v0.12.10
-// https://github.com/ffmpegwasm/ffmpeg.wasm/blob/v0.12.10/packages/ffmpeg/src/worker.ts#L76-L91
-// https://github.com/ffmpegwasm/ffmpeg.wasm/blob/v0.12.10/packages/util/src/index.ts#L49
-// https://github.com/ffmpegwasm/ffmpeg.wasm/blob/v0.12.10/apps/vanilla-app/public/transcode.html
 
 // ----------------------------------------------------------------------------- config options
 
@@ -286,17 +277,18 @@ const show_transcoding_output = (output_file, output_url, transcoder_container) 
 
 // ----------------------------------------------------------------------------- transcoder: helper
 
-const getFFmpegCoreOptions = async () => {
-  const coreURL   = 'http://localhost/'
-  const workerURL = `${coreURL}ffmpeg-core.worker.js`
-  let wasmURL, wasmBinary
+const getClassWorkerURL = () => GM_getResourceURL('classWorkerURL')
+const getCoreURL        = () => GM_getResourceURL('coreURL')
+
+const getWasmBinary     = async () => {
+  let wasmBinary
 
   if (state.wasmBinary) {
     wasmBinary = state.wasmBinary.slice(0)
   }
   else {
-    wasmBinary = null
-    wasmURL    = GM_getResourceURL('wasmURL')
+    wasmBinary  = null
+    let wasmURL = GM_getResourceURL('wasmURL')
     debug('resource "wasmURL": ' + (wasmURL ? wasmURL.substring(0, 100) : 'null'), true)
 
     if (wasmURL) {
@@ -310,9 +302,8 @@ const getFFmpegCoreOptions = async () => {
       }
     }
     else {
-      wasmURL    = `${coreURL}ffmpeg-core.wasm`
-      const res  = await fetch(wasmURL)
-      wasmBinary = await res.arrayBuffer()
+      wasmURL    = 'http://localhost/ffmpeg-core.wasm'
+      wasmBinary = await fetch(wasmURL).then(res => res.arrayBuffer())
     }
 
     if (wasmBinary) {
@@ -324,13 +315,7 @@ const getFFmpegCoreOptions = async () => {
     }
   }
 
-  wasmURL = 'data:application/octet-stream;base64,'
-
-  const mainScriptUrlOrBlob = `${coreURL}#${btoa(
-    JSON.stringify({workerURL, wasmURL})
-  )}`
-
-  return {mainScriptUrlOrBlob, wasmBinary}
+  return wasmBinary
 }
 
 /*
@@ -347,6 +332,12 @@ const base64ToArrayBuffer = (base64) => {
 
   return bytes.buffer
 }
+
+const getFFMessageLoadConfig = async () => ({
+  classWorkerURL: getClassWorkerURL(),
+  coreURL:        getCoreURL(),
+  wasmBinary:     await getWasmBinary()
+})
 
 // ----------------------------------------------------------------------------- transcoder: copy_and_combine
 
@@ -372,15 +363,16 @@ const transcode_copy_and_combine = async () => {
   const input_video    = `video.${video_format.container}`
   const input_audio    = `audio.${audio_format.container}`
   const output_file    = 'output.mp4'
-  const ffmpeg_options = await getFFmpegCoreOptions()
-  const ffmpeg         = await window.createFFmpegCore(ffmpeg_options)
+  const ffmpeg         = new window.FFmpegWASM.FFmpeg()
 
-  ffmpeg.setLogger(console.log)
-  ffmpeg.setProgress(update_transcoding_progress)
-  await ffmpeg.FS.writeFile(input_video, await window.FFmpegUtil.fetchFile(video_url))
-  await ffmpeg.FS.writeFile(input_audio, await window.FFmpegUtil.fetchFile(audio_url))
-  await ffmpeg.exec('-i', input_video, '-i', input_audio, '-c', 'copy', '-map', '0:v:0', '-map', '1:a:0', output_file)
-  const data = await ffmpeg.FS.readFile(output_file, {encoding: 'binary'})
+  ffmpeg.on('log',      console.log)
+  ffmpeg.on('progress', update_transcoding_progress)
+
+  await ffmpeg.load(await getFFMessageLoadConfig())
+  await ffmpeg.writeFile(input_video, await window.FFmpegUtil.fetchFile(video_url))
+  await ffmpeg.writeFile(input_audio, await window.FFmpegUtil.fetchFile(audio_url))
+  await ffmpeg.exec(['-i', input_video, '-i', input_audio, '-c', 'copy', '-map', '0:v:0', '-map', '1:a:0', output_file])
+  const data = await ffmpeg.readFile(output_file, 'binary')
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'video/mp4'}))
 
   show_transcoding_output(output_file, output_url, transcoder_container)
@@ -404,14 +396,15 @@ const transcode_resample = async () => {
 
   const input_audio    = `audio.${audio_format.container}`
   const output_file    = 'output.mp3'
-  const ffmpeg_options = await getFFmpegCoreOptions()
-  const ffmpeg         = await window.createFFmpegCore(ffmpeg_options)
+  const ffmpeg         = new window.FFmpegWASM.FFmpeg()
 
-  ffmpeg.setLogger(console.log)
-  ffmpeg.setProgress(update_transcoding_progress)
-  await ffmpeg.FS.writeFile(input_audio, await window.FFmpegUtil.fetchFile(audio_url))
-  await ffmpeg.exec('-i', input_audio, '-ar', '44100', '-ac', '2', '-b:a', audio_bitrate, '-c:a', 'libmp3lame', '-q:a', '0', output_file)
-  const data = await ffmpeg.FS.readFile(output_file, {encoding: 'binary'})
+  ffmpeg.on('log',      console.log)
+  ffmpeg.on('progress', update_transcoding_progress)
+
+  await ffmpeg.load(await getFFMessageLoadConfig())
+  await ffmpeg.writeFile(input_audio, await window.FFmpegUtil.fetchFile(audio_url))
+  await ffmpeg.exec(['-i', input_audio, '-ar', '44100', '-ac', '2', '-b:a', audio_bitrate, '-c:a', 'libmp3lame', '-q:a', '0', output_file])
+  const data = await ffmpeg.readFile(output_file, 'binary')
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'audio/mpeg'}))
 
   show_transcoding_output(output_file, output_url, transcoder_container)
@@ -511,14 +504,14 @@ const dedupe_formats = () => {
 // ----------------------------------------------------------------------------- normalize dependencies
 
 try {
-  if (!window.FFmpegUtil && FFmpegUtil)
-    window.FFmpegUtil = FFmpegUtil
+  if (!window.FFmpegWASM && FFmpegWASM)
+    window.FFmpegWASM = FFmpegWASM
 }
 catch(e) {}
 
 try {
-  if (!window.createFFmpegCore && createFFmpegCore)
-    window.createFFmpegCore = createFFmpegCore
+  if (!window.FFmpegUtil && FFmpegUtil)
+    window.FFmpegUtil = FFmpegUtil
 }
 catch(e) {}
 
@@ -552,7 +545,7 @@ const init = async () => {
   add_transcode_media_button()
 }
 
-if (window.Ytdl && window.Ytdl.YtdlCore && window.FFmpegUtil && window.createFFmpegCore) {
+if (window.Ytdl && window.Ytdl.YtdlCore && window.FFmpegUtil && window.FFmpegWASM) {
   init()
 }
 

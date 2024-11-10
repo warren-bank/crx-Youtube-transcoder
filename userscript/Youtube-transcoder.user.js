@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.1.0
+// @version      2.2.0
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -9,8 +9,8 @@
 // @match        *://*.youtube.com/embed/*
 // @icon         https://www.youtube.com/favicon.ico
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@6.0.5-ybd-project.1/dist/es2020/ytdl-core.js
+// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-fetch-progress@1.0.0/src/fetch-progress.js
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.2/dist/umd/ffmpeg.js
-// @require      https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js
 // @resource     classWorkerURL  https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.2/dist/umd/111.ffmpeg.js
 // @resource     coreURL         https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js
 // @resource     wasmURL         https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm
@@ -43,8 +43,10 @@ const constants = {
     select_audio_format: "select_audio_format",
     button_copy_and_combine: "button_copy_and_combine",
     button_resample: "button_resample",
-    span_transcoding_progress: "span_transcoding_progress",
-    pre_transcoding_output: "pre_transcoding_output"
+    progress_video_downloader: "progress_video_downloader",
+    progress_audio_downloader: "progress_audio_downloader",
+    progress_transcoder: "progress_transcoder",
+    pre_transcoder_output: "pre_transcoder_output"
   },
   button_text: {
     transcode_media: "Transcode Media",
@@ -53,13 +55,20 @@ const constants = {
     save_result: "Save Result"
   },
   notification_text: {
-    transcoding_progress_label: "Transcoding in Progress:"
+    select_video_format_label: "Video Input:",
+    select_audio_format_label: "Audio Input:",
+    transcoder_progress_label: "Transcoding in Progress",
+    progress_video_downloader_label: "Video Download:",
+    progress_audio_downloader_label: "Audio Download:",
+    progress_transcoder_label: "Transcoding:"
   },
   inline_css: {
     button: "background-color: #065fd4; color: #fff; padding: 10px 15px; border-radius: 18px; border-style: none; outline: none; font-weight: bold; cursor: pointer;",
-    table_transcoder_options: "background-color: white; padding: 2em; border: 1px solid #000;",
-    div_transcoding_progress: "background-color: white; padding: 1em; border: 1px solid #000; font-size: 1.5em;",
-    pre_transcoding_output: "width: 400px; max-height: 400px; overflow: auto; margin-top: 1em; background-color: white; padding: 0.5em; border: 1px solid #000;"
+    table_transcoder_options:  "background-color: white; padding: 2em; border: 1px solid #000;",
+    table_transcoder_progress: "background-color: white; padding: 1em; border: 1px solid #000;",
+    pre_transcoder_output: "width: 400px; max-height: 400px; overflow: auto; margin-top: 1em; background-color: white; padding: 0.5em; border: 1px solid #000;",
+    progress_label: "white-space: nowrap;",
+    progress: "width: calc(100% - 5em);"
   }
 }
 
@@ -193,11 +202,11 @@ const show_transcoder_options = () => {
   empty_element(transcoder_container, `
     <table style="${constants.inline_css.table_transcoder_options}">
       <tr valign="middle">
-        <td>Video Input:</td>
+        <td>${constants.notification_text.select_video_format_label}</td>
         <td><select id="${constants.element_id.select_video_format}"></select></td>
       </tr>
       <tr valign="middle">
-        <td>Audio Input:</td>
+        <td>${constants.notification_text.select_audio_format_label}</td>
         <td><select id="${constants.element_id.select_audio_format}"></select></td>
       </tr>
       <tr valign="middle">
@@ -246,39 +255,82 @@ const show_transcoder_options = () => {
 
 // ----------------------------------------------------------------------------- DOM: progress indicator
 
-const show_transcoding_progress = (transcoder_container) => {
+const show_transcoder_progress = (transcoder_container, show_video_downloader, show_audio_downloader) => {
   if (!transcoder_container)
     transcoder_container = get_transcoder_container()
 
   empty_element(transcoder_container, `
-    <div style="${constants.inline_css.div_transcoding_progress}">
-      <span>${constants.notification_text.transcoding_progress_label} </span><span id="${constants.element_id.span_transcoding_progress}"></span>
-    </div>
-  ` + (user_options.displayOutput ? `
-    <pre id="${constants.element_id.pre_transcoding_output}" style="${constants.inline_css.pre_transcoding_output}">${"FFmpeg output:\n\n"}</pre>
-  ` : ''))
+    <table style="${constants.inline_css.table_transcoder_progress}">
+      <tr>
+        <th></th>
+        <th width="100%"></th>
+      </tr>
+      <tr valign="middle">
+        <td colspan="2" align="center">
+          <h4>${constants.notification_text.transcoder_progress_label}</h4>
+        </td>
+      </tr>
+    ${!show_video_downloader ? '' : `
+      <tr valign="middle">
+        <td style="${constants.inline_css.progress_label}">${constants.notification_text.progress_video_downloader_label}</td>
+        <td>
+          <progress id="${constants.element_id.progress_video_downloader}" style="${constants.inline_css.progress}" value="0" max="1"></progress><label> 0 %</label>
+        </td>
+      </tr>
+    `}
+    ${!show_audio_downloader ? '' : `
+      <tr valign="middle">
+        <td style="${constants.inline_css.progress_label}">${constants.notification_text.progress_audio_downloader_label}</td>
+        <td>
+          <progress id="${constants.element_id.progress_audio_downloader}" style="${constants.inline_css.progress}" value="0" max="1"></progress><label> 0 %</label>
+        </td>
+      </tr>
+    `}
+      <tr valign="middle">
+        <td style="${constants.inline_css.progress_label}">${constants.notification_text.progress_transcoder_label}</td>
+        <td>
+          <progress id="${constants.element_id.progress_transcoder}" style="${constants.inline_css.progress}" value="0" max="1"></progress><label> 0 %</label>
+        </td>
+      </tr>
+    ${!user_options.displayOutput ? '' : `
+      <tr valign="middle">
+        <td colspan="2">
+          <pre id="${constants.element_id.pre_transcoder_output}" style="${constants.inline_css.pre_transcoder_output}">${"FFmpeg output:\n\n"}</pre>
+        </td>
+      </tr>
+    `}
+    </table>
+  `)
 
-  update_transcoding_progress({progress: 0})
+  if (show_video_downloader)
+    update_transcoder_progress(constants.element_id.progress_video_downloader, {progress: 0})
+
+  if (show_audio_downloader)
+    update_transcoder_progress(constants.element_id.progress_audio_downloader, {progress: 0})
+
+  update_transcoder_progress(constants.element_id.progress_transcoder, {progress: 0})
 }
 
-const update_transcoding_progress = (event) => {
+const update_transcoder_progress = (id, event) => {
   debug(event, true)
   if (event && (typeof event === 'object') && (typeof event.progress === 'number')) {
-    // round to 2 decimal places
-    document.getElementById(constants.element_id.span_transcoding_progress).textContent = String(Math.floor(event.progress * 10000) / 100) + '%'
+    const $progress = document.getElementById(id)
+    const $label    = $progress.nextSibling
+    $progress.value = event.progress
+    $label.textContent = ' ' + (Math.floor(event.progress * 10000) / 100) + ' %'  // round to 2 decimal places
   }
 }
 
-const update_transcoding_output = (event) => {
+const update_transcoder_output = (event) => {
   debug(event)
   if (user_options.displayOutput && event && (typeof event === 'object') && ((event.type === 'stdout') || (event.type === 'stderr')) && event.message) {
-    document.getElementById(constants.element_id.pre_transcoding_output).appendChild(
+    document.getElementById(constants.element_id.pre_transcoder_output).appendChild(
       document.createTextNode(event.message + "\n")
     )
   }
 }
 
-const show_transcoding_result = (output_file, output_url, transcoder_container) => {
+const show_transcoder_result = (output_file, output_url, transcoder_container) => {
   if (!transcoder_container)
     transcoder_container = get_transcoder_container()
 
@@ -291,7 +343,7 @@ const show_transcoding_result = (output_file, output_url, transcoder_container) 
   `)
 }
 
-// ----------------------------------------------------------------------------- transcoder: helper
+// ----------------------------------------------------------------------------- transcoder [helper]: config for load()
 
 const getClassWorkerURL = () => GM_getResourceURL('classWorkerURL')
 const getCoreURL        = () => GM_getResourceURL('coreURL')
@@ -355,6 +407,24 @@ const getFFMessageLoadConfig = async () => ({
   wasmBinary:     await getWasmBinary()
 })
 
+// ----------------------------------------------------------------------------- transcoder [helper]: file downloader w/ progress updates
+
+const fetchFile = async (url, progressHandler) => {
+  return fetch(url)
+    .then(window.fetchProgress(progressHandler))
+    .then(res => res.bytes())
+}
+
+const fetchFilesConcurrent = (list) => {
+  const promises = []
+  for (const args of list) {
+    promises.push(
+      fetchFile(...args)
+    )
+  }
+  return Promise.all(promises)
+}
+
 // ----------------------------------------------------------------------------- transcoder: copy_and_combine
 
 const transcode_copy_and_combine = async () => {
@@ -374,24 +444,31 @@ const transcode_copy_and_combine = async () => {
   if (!video_url || !audio_url) return
 
   const transcoder_container = get_transcoder_container()
-  show_transcoding_progress(transcoder_container)
+  show_transcoder_progress(transcoder_container, true, true)
+
+  const files_list = [
+    [video_url, update_transcoder_progress.bind(null, constants.element_id.progress_video_downloader)],
+    [audio_url, update_transcoder_progress.bind(null, constants.element_id.progress_audio_downloader)]
+  ]
+
+  const files_uint8 = await fetchFilesConcurrent(files_list)
 
   const input_video    = `video.${video_format.container}`
   const input_audio    = `audio.${audio_format.container}`
   const output_file    = 'output.mp4'
   const ffmpeg         = new window.FFmpegWASM.FFmpeg()
 
-  ffmpeg.on('progress', update_transcoding_progress)
-  ffmpeg.on('log',      update_transcoding_output)
+  ffmpeg.on('progress', update_transcoder_progress.bind(null, constants.element_id.progress_transcoder))
+  ffmpeg.on('log',      update_transcoder_output)
 
   await ffmpeg.load(await getFFMessageLoadConfig())
-  await ffmpeg.writeFile(input_video, await window.FFmpegUtil.fetchFile(video_url))
-  await ffmpeg.writeFile(input_audio, await window.FFmpegUtil.fetchFile(audio_url))
+  await ffmpeg.writeFile(input_video, files_uint8[0])
+  await ffmpeg.writeFile(input_audio, files_uint8[1])
   await ffmpeg.exec(['-i', input_video, '-i', input_audio, '-c', 'copy', '-map', '0:v:0', '-map', '1:a:0', output_file])
   const data = await ffmpeg.readFile(output_file, 'binary')
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'video/mp4'}))
 
-  show_transcoding_result(output_file, output_url, transcoder_container)
+  show_transcoder_result(output_file, output_url, transcoder_container)
 }
 
 // ----------------------------------------------------------------------------- transcoder: resample
@@ -408,22 +485,28 @@ const transcode_resample = async () => {
   if (!audio_url) return
 
   const transcoder_container = get_transcoder_container()
-  show_transcoding_progress(transcoder_container)
+  show_transcoder_progress(transcoder_container, false, true)
+
+  const files_list = [
+    [audio_url, update_transcoder_progress.bind(null, constants.element_id.progress_audio_downloader)]
+  ]
+
+  const files_uint8 = await fetchFilesConcurrent(files_list)
 
   const input_audio    = `audio.${audio_format.container}`
   const output_file    = 'output.mp3'
   const ffmpeg         = new window.FFmpegWASM.FFmpeg()
 
-  ffmpeg.on('progress', update_transcoding_progress)
-  ffmpeg.on('log',      update_transcoding_output)
+  ffmpeg.on('progress', update_transcoder_progress.bind(null, constants.element_id.progress_transcoder))
+  ffmpeg.on('log',      update_transcoder_output)
 
   await ffmpeg.load(await getFFMessageLoadConfig())
-  await ffmpeg.writeFile(input_audio, await window.FFmpegUtil.fetchFile(audio_url))
+  await ffmpeg.writeFile(input_audio, files_uint8[0])
   await ffmpeg.exec(['-i', input_audio, '-ar', '44100', '-ac', '2', '-b:a', audio_bitrate, '-c:a', 'libmp3lame', '-q:a', '0', output_file])
   const data = await ffmpeg.readFile(output_file, 'binary')
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'audio/mpeg'}))
 
-  show_transcoding_result(output_file, output_url, transcoder_container)
+  show_transcoder_result(output_file, output_url, transcoder_container)
 }
 
 // ----------------------------------------------------------------------------- format data structure: validation
@@ -525,12 +608,6 @@ try {
 }
 catch(e) {}
 
-try {
-  if (!window.FFmpegUtil && FFmpegUtil)
-    window.FFmpegUtil = FFmpegUtil
-}
-catch(e) {}
-
 // ----------------------------------------------------------------------------- bootstrap
 
 const init = async () => {
@@ -561,7 +638,7 @@ const init = async () => {
   add_transcode_media_button()
 }
 
-if (window.Ytdl && window.Ytdl.YtdlCore && window.FFmpegUtil && window.FFmpegWASM) {
+if (window.Ytdl && window.Ytdl.YtdlCore && window.FFmpegWASM && window.fetchProgress) {
   init()
 }
 

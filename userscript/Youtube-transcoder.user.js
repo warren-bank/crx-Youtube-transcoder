@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.2.1
+// @version      2.3.0
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -10,8 +10,8 @@
 // @icon         https://www.youtube.com/favicon.ico
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@6.0.5-ybd-project.1/dist/es2020/ytdl-core.js
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-fetch-progress@1.0.0/src/fetch-progress.js
-// @require      https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.2/dist/umd/ffmpeg.js
-// @resource     classWorkerURL  https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.2/dist/umd/111.ffmpeg.js
+// @require      https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.3/dist/umd/ffmpeg.js
+// @resource     classWorkerURL  https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.3/dist/umd/258.ffmpeg.js
 // @resource     coreURL         https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js
 // @resource     wasmURL         https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm
 // @run-at       document_end
@@ -399,9 +399,10 @@ const base64ToArrayBuffer = (base64) => {
 }
 
 const getFFMessageLoadConfig = async () => ({
-  classWorkerURL: getClassWorkerURL(),
-  coreURL:        getCoreURL(),
-  wasmBinary:     await getWasmBinary()
+  classWorkerURL:          getClassWorkerURL(),
+  coreURL:                 getCoreURL(),
+  wasmBinary:              await getWasmBinary(),
+  createTrustedTypePolicy: true
 })
 
 // ----------------------------------------------------------------------------- transcoder [helper]: file downloader w/ progress updates
@@ -463,8 +464,9 @@ const transcode_copy_and_combine = async () => {
   await ffmpeg.writeFile(input_audio, files_uint8[1])
   await ffmpeg.exec(['-i', input_video, '-i', input_audio, '-c', 'copy', '-map', '0:v:0', '-map', '1:a:0', output_file])
   const data = await ffmpeg.readFile(output_file, 'binary')
-  const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'video/mp4'}))
+  ffmpeg.terminate()
 
+  const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'video/mp4'}))
   show_transcoder_result(output_file, output_url, transcoder_container)
 }
 
@@ -501,8 +503,9 @@ const transcode_resample = async () => {
   await ffmpeg.writeFile(input_audio, files_uint8[0])
   await ffmpeg.exec(['-i', input_audio, '-ar', '44100', '-ac', '2', '-b:a', audio_bitrate, '-c:a', 'libmp3lame', '-q:a', '0', output_file])
   const data = await ffmpeg.readFile(output_file, 'binary')
-  const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'audio/mpeg'}))
+  ffmpeg.terminate()
 
+  const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'audio/mpeg'}))
   show_transcoder_result(output_file, output_url, transcoder_container)
 }
 

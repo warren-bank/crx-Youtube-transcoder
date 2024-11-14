@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.3.0
+// @version      2.3.1
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -342,8 +342,8 @@ const show_transcoder_result = (output_file, output_url, transcoder_container) =
 
 // ----------------------------------------------------------------------------- transcoder [helper]: config for load()
 
-const getClassWorkerURL = () => GM_getResourceURL('classWorkerURL')
-const getCoreURL        = () => GM_getResourceURL('coreURL')
+const getClassWorkerURL = () => GM_getResourceURL('classWorkerURL', false)
+const getCoreURL        = () => GM_getResourceURL('coreURL', false)
 
 const getWasmBinary     = async () => {
   let wasmBinary
@@ -353,7 +353,7 @@ const getWasmBinary     = async () => {
   }
   else {
     wasmBinary  = null
-    let wasmURL = GM_getResourceURL('wasmURL')
+    let wasmURL = GM_getResourceURL('wasmURL', false)
     debug('resource "wasmURL": ' + (wasmURL ? wasmURL.substring(0, 100) : 'null'), true)
 
     if (wasmURL) {
@@ -363,7 +363,7 @@ const getWasmBinary     = async () => {
         wasmBinary  = base64ToArrayBuffer(wasmURL)
       }
       else if (wasmURL.substring(0, 5) === 'blob:') {
-        // TODO
+        wasmBinary = await fetch(wasmURL).then(res => res.arrayBuffer())
       }
     }
     else {

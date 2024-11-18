@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.4.0
+// @version      2.4.1
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -33,7 +33,8 @@ const user_options = {
   "debug_verbosity": 0,  // 0 = silent. 1 = console log. 2 = window alert. 3 = window alert + breakpoint in ffmpeg.wasm progress handler.
   "cacheWasmBinary": true,
   "displayOutput":   true,
-  "save_result_calls_GM_download": (typeof window.WebViewWM === 'object')
+  "save_result_calls_GM_download": (typeof window.WebViewWM === 'object'),
+  "validate_format_xhr_timeout": 5000  // milliseconds
 }
 
 // ----------------------------------------------------------------------------- constants
@@ -81,6 +82,16 @@ const state = {
   formats: null,
   wasmBinary: null
 }
+
+// ----------------------------------------------------------------------------- sanitize config options
+
+const sanitize_user_options = () => {
+  user_options.validate_format_xhr_timeout = ((typeof user_options.validate_format_xhr_timeout === 'number') && (user_options.validate_format_xhr_timeout >= 1000))
+    ? Math.floor(user_options.validate_format_xhr_timeout)
+    : 5000
+}
+
+sanitize_user_options()
 
 // ----------------------------------------------------------------------------- CSP
 
@@ -547,7 +558,7 @@ const validate_format = (format, callback) => {
 
   const xhr = new XMLHttpRequest()
   xhr.open('HEAD', format.url, true)
-  xhr.timeout = 5000
+  xhr.timeout = user_options.validate_format_xhr_timeout
   xhr.onreadystatechange = function() {
     if (xhr.readyState === XMLHttpRequest.DONE) {
       format.urlStatus = xhr.status || 0

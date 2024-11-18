@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.3.1
+// @version      2.4.0
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -17,6 +17,7 @@
 // @run-at       document_end
 // @grant        unsafeWindow
 // @grant        GM_getResourceURL
+// @grant        GM_download
 // @homepage     https://github.com/warren-bank/crx-Youtube-transcoder/tree/userscript/es6
 // @supportURL   https://github.com/warren-bank/crx-Youtube-transcoder/issues
 // @downloadURL  https://github.com/warren-bank/crx-Youtube-transcoder/raw/userscript/es6/userscript/Youtube-transcoder.user.js
@@ -31,7 +32,8 @@
 const user_options = {
   "debug_verbosity": 0,  // 0 = silent. 1 = console log. 2 = window alert. 3 = window alert + breakpoint in ffmpeg.wasm progress handler.
   "cacheWasmBinary": true,
-  "displayOutput":   true
+  "displayOutput":   true,
+  "save_result_calls_GM_download": (typeof window.WebViewWM === 'object')
 }
 
 // ----------------------------------------------------------------------------- constants
@@ -143,6 +145,10 @@ const empty_element = (el, html) => {
   return el
 }
 
+const cancel_event = (event) => {
+  event.stopPropagation();event.stopImmediatePropagation();event.preventDefault();event.returnValue=false;
+}
+
 // ----------------------------------------------------------------------------- DOM: container element
 
 const add_transcoder_container = () => {
@@ -192,7 +198,9 @@ const add_transcode_media_button = () => {
 
 // ----------------------------------------------------------------------------- DOM: transcoder options
 
-const show_transcoder_options = () => {
+const show_transcoder_options = (event) => {
+  cancel_event(event)
+
   const transcoder_container = get_transcoder_container()
   hide_transcoder_container(transcoder_container)
 
@@ -338,6 +346,14 @@ const show_transcoder_result = (output_file, output_url, transcoder_container) =
       </button>
     </a>
   `)
+
+  if (user_options.save_result_calls_GM_download) {
+    transcoder_container.querySelector('a').addEventListener('click', (event) => {
+      cancel_event(event)
+
+      GM_download(output_url, output_file)
+    })
+  }
 }
 
 // ----------------------------------------------------------------------------- transcoder [helper]: config for load()
@@ -425,7 +441,9 @@ const fetchFilesConcurrent = (list) => {
 
 // ----------------------------------------------------------------------------- transcoder: copy_and_combine
 
-const transcode_copy_and_combine = async () => {
+const transcode_copy_and_combine = async (event) => {
+  cancel_event(event)
+
   const video_format_itag = Number( document.getElementById(constants.element_id.select_video_format).value )
   const audio_format_itag = Number( document.getElementById(constants.element_id.select_audio_format).value )
 
@@ -472,7 +490,9 @@ const transcode_copy_and_combine = async () => {
 
 // ----------------------------------------------------------------------------- transcoder: resample
 
-const transcode_resample = async () => {
+const transcode_resample = async (event) => {
+  cancel_event(event)
+
   const audio_format_itag = Number( document.getElementById(constants.element_id.select_audio_format).value )
   if (!audio_format_itag) return
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.4.1
+// @version      2.4.2
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -34,6 +34,7 @@ const user_options = {
   "cacheWasmBinary": true,
   "displayOutput":   true,
   "save_result_calls_GM_download": (typeof window.WebViewWM === 'object'),
+  "GM_download_data_type": ((typeof window.WebViewWM === 'object') ? 'arraybuffer' : 'text_datauri'),
   "validate_format_xhr_timeout": 5000  // milliseconds
 }
 
@@ -79,8 +80,9 @@ const constants = {
 // ----------------------------------------------------------------------------- state
 
 const state = {
-  formats: null,
-  wasmBinary: null
+  formats:      null, // Array of Object
+  wasmBinary:   null, // ArrayBuffer
+  ffmpegOutput: null  // ArrayBuffer
 }
 
 // ----------------------------------------------------------------------------- sanitize config options
@@ -362,9 +364,27 @@ const show_transcoder_result = (output_file, output_url, transcoder_container) =
     transcoder_container.querySelector('a').addEventListener('click', (event) => {
       cancel_event(event)
 
-      GM_download(output_url, output_file)
+      const data = (user_options.GM_download_data_type === 'text_datauri')
+        ? arrayBufferToBase64(state.ffmpegOutput)
+        : state.ffmpegOutput
+
+      GM_download(data, output_file)
     })
   }
+}
+
+const arrayBufferToBase64 = (arrayBuffer) => {
+  const uint8  = new Uint8Array(arrayBuffer)
+  const length = uint8.byteLength
+  const binary = []
+
+  for (let i=0; i < length; i++) {
+    binary[i] = String.fromCharCode(uint8[i])
+  }
+
+  return btoa(
+    binary.join('')
+  )
 }
 
 // ----------------------------------------------------------------------------- transcoder [helper]: config for load()
@@ -495,6 +515,9 @@ const transcode_copy_and_combine = async (event) => {
   const data = await ffmpeg.readFile(output_file, 'binary')
   ffmpeg.terminate()
 
+  if (user_options.save_result_calls_GM_download)
+    state.ffmpegOutput = data.buffer
+
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'video/mp4'}))
   show_transcoder_result(output_file, output_url, transcoder_container)
 }
@@ -535,6 +558,9 @@ const transcode_resample = async (event) => {
   await ffmpeg.exec(['-i', input_audio, '-ar', '44100', '-ac', '2', '-b:a', audio_bitrate, '-c:a', 'libmp3lame', '-q:a', '0', output_file])
   const data = await ffmpeg.readFile(output_file, 'binary')
   ffmpeg.terminate()
+
+  if (user_options.save_result_calls_GM_download)
+    state.ffmpegOutput = data.buffer
 
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'audio/mpeg'}))
   show_transcoder_result(output_file, output_url, transcoder_container)

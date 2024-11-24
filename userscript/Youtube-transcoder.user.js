@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.4.2
+// @version      2.4.3
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://youtube.com/watch?v=*
 // @match        *://youtube.com/embed/*
@@ -67,7 +67,16 @@ const constants = {
     progress_transcoder_label: "Transcoding:"
   },
   inline_css: {
-    transcoder_container: "position: fixed; top: 10px; right: 10px; z-index: 9999; max-width: 400px;",
+    transcoder_container: {
+      dom: {
+        outer: "position: relative; top: 0; left: 0; width: 0; height: 0; margin-left: 10px; align-self: flex-start; overflow: visible;",
+        inner: "position: absolute; top: 0; left: 0; z-index: 9999; max-width: 400px;"
+      },
+      fallback: {
+        outer: "",
+        inner: "position: fixed; top: 10px; right: 10px; z-index: 9999; max-width: 400px;"
+      }
+    },
     button: "background-color: #065fd4; color: #fff; padding: 10px 15px; border-radius: 18px; border-style: none; outline: none; font-weight: bold; cursor: pointer;",
     table_transcoder_options:  "background-color: white; padding: 2em; border: 1px solid #000;",
     table_transcoder_progress: "background-color: white; padding: 1em; border: 1px solid #000;",
@@ -165,14 +174,29 @@ const cancel_event = (event) => {
 // ----------------------------------------------------------------------------- DOM: container element
 
 const add_transcoder_container = () => {
-  const div = make_element('div')
+  const container = document.querySelector('div#owner > div#subscribe-button')
+  const div_outer = make_element('div')
+  const div_inner = make_element('div')
 
-  div.setAttribute('id',    constants.element_id.transcoder_container)
-  div.setAttribute('style', constants.inline_css.transcoder_container)
+  div_inner.setAttribute('id', constants.element_id.transcoder_container)
+  div_outer.appendChild(div_inner)
 
-  document.body.appendChild(div)
+  if (container) {
+    // DOM assertion passes
+    div_outer.setAttribute('style', constants.inline_css.transcoder_container.dom.outer)
+    div_inner.setAttribute('style', constants.inline_css.transcoder_container.dom.inner)
 
-  return div
+    container.parentElement.appendChild(div_outer)
+  }
+  else {
+    // fallback
+    div_outer.setAttribute('style', constants.inline_css.transcoder_container.fallback.outer)
+    div_inner.setAttribute('style', constants.inline_css.transcoder_container.fallback.inner)
+
+    document.body.appendChild(div_outer)
+  }
+
+  return div_inner
 }
 
 const get_transcoder_container = () => document.getElementById(constants.element_id.transcoder_container) || add_transcoder_container()

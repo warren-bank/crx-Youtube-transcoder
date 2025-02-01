@@ -3,8 +3,6 @@
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
 // @version      2.4.3
 // @match        *://youtube.googleapis.com/v/*
-// @match        *://youtube.com/watch?v=*
-// @match        *://youtube.com/embed/*
 // @match        *://*.youtube.com/watch?v=*
 // @match        *://*.youtube.com/embed/*
 // @icon         https://www.youtube.com/favicon.ico
@@ -91,7 +89,8 @@ const constants = {
 const state = {
   formats:      null, // Array of Object
   wasmBinary:   null, // ArrayBuffer
-  ffmpegOutput: null  // ArrayBuffer
+  ffmpegOutput: null, // ArrayBuffer
+  ffmpegFormat: null  // string: MIME-type
 }
 
 // ----------------------------------------------------------------------------- sanitize config options
@@ -389,7 +388,7 @@ const show_transcoder_result = (output_file, output_url, transcoder_container) =
       cancel_event(event)
 
       const data = (user_options.GM_download_data_type === 'text_datauri')
-        ? arrayBufferToBase64(state.ffmpegOutput)
+        ? `data:${ state.ffmpegFormat };base64,${ arrayBufferToBase64(state.ffmpegOutput) }`
         : state.ffmpegOutput
 
       GM_download(data, output_file)
@@ -539,8 +538,10 @@ const transcode_copy_and_combine = async (event) => {
   const data = await ffmpeg.readFile(output_file, 'binary')
   ffmpeg.terminate()
 
-  if (user_options.save_result_calls_GM_download)
+  if (user_options.save_result_calls_GM_download) {
     state.ffmpegOutput = data.buffer
+    state.ffmpegFormat = 'video/mp4'
+  }
 
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'video/mp4'}))
   show_transcoder_result(output_file, output_url, transcoder_container)
@@ -583,8 +584,10 @@ const transcode_resample = async (event) => {
   const data = await ffmpeg.readFile(output_file, 'binary')
   ffmpeg.terminate()
 
-  if (user_options.save_result_calls_GM_download)
+  if (user_options.save_result_calls_GM_download) {
     state.ffmpegOutput = data.buffer
+    state.ffmpegFormat = 'audio/mpeg'
+  }
 
   const output_url = URL.createObjectURL(new Blob([data.buffer], {type: 'audio/mpeg'}))
   show_transcoder_result(output_file, output_url, transcoder_container)

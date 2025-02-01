@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.4.3
+// @version      2.4.4
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://*.youtube.com/watch?v=*
 // @match        *://*.youtube.com/embed/*
@@ -39,7 +39,12 @@ const user_options = {
 // ----------------------------------------------------------------------------- constants
 
 const constants = {
+  query_selector: {
+    userscripts_row_container_parent: "div#above-the-fold",
+    userscripts_row_container_prev_sibling: "div#top-row"
+  },
   element_id: {
+    userscripts_row_container: "userscripts-row",
     transcoder_container: "transcoder_container",
     select_video_format: "select_video_format",
     select_audio_format: "select_audio_format",
@@ -51,10 +56,11 @@ const constants = {
     pre_transcoder_output: "pre_transcoder_output"
   },
   button_text: {
-    transcode_media: "Transcode Media",
+    show_transcoder_options: "Transcode Media",
     copy_and_combine: "Audio and Video: Copy and Combine to mp4",
     resample: "Audio: Resample to mp3",
-    save_result: "Save Result"
+    save_result: "Save Result",
+    close_button: "X"
   },
   notification_text: {
     select_video_format_label: "Video Input:",
@@ -65,19 +71,12 @@ const constants = {
     progress_transcoder_label: "Transcoding:"
   },
   inline_css: {
-    transcoder_container: {
-      dom: {
-        outer: "position: relative; top: 0; left: 0; width: 0; height: 0; margin-left: 10px; align-self: flex-start; overflow: visible;",
-        inner: "position: absolute; top: 0; left: 0; z-index: 9999; max-width: 400px;"
-      },
-      fallback: {
-        outer: "",
-        inner: "position: fixed; top: 10px; right: 10px; z-index: 9999; max-width: 400px;"
-      }
-    },
-    button: "background-color: #065fd4; color: #fff; padding: 10px 15px; border-radius: 18px; border-style: none; outline: none; font-weight: bold; cursor: pointer;",
-    table_transcoder_options:  "background-color: white; padding: 2em; border: 1px solid #000;",
-    table_transcoder_progress: "background-color: white; padding: 1em; border: 1px solid #000;",
+    userscripts_row_container: "position: relative; top: 0; left: 0; overflow: visible;",
+    transcoder_container: "display: block; position: absolute; top: 0px; left: 0px; z-index: 9999; background-color: white; padding: 2em; border: 1px solid #000; text-align: center;",
+    close_button: "display: block; position: absolute; top: -1em; right: -1em; z-index: 9999; width: 2em; height: 2em; padding: 0.5em; line-height: 1em; cursor: pointer;",
+    text_button: "background-color: #065fd4; color: #fff; padding: 10px 15px; border-radius: 18px; border-style: none; outline: none; font-weight: bold; cursor: pointer;",
+    table_transcoder_options:  "text-align: left;",
+    table_transcoder_progress: "text-align: left;",
     pre_transcoder_output: "box-sizing: border-box; width: calc(400px - 2em); max-height: 400px; overflow: auto; margin-top: 1em; background-color: white; padding: 0.5em; border: 1px solid #000;",
     progress_label: "white-space: nowrap;",
     progress: "width: calc(100% - 5em);"
@@ -170,35 +169,73 @@ const cancel_event = (event) => {
   event.stopPropagation();event.stopImmediatePropagation();event.preventDefault();event.returnValue=false;
 }
 
-// ----------------------------------------------------------------------------- DOM: container element
+// ----------------------------------------------------------------------------- DOM: container element for userscripts UI
 
-const add_transcoder_container = () => {
-  const container = document.querySelector('div#owner > div#subscribe-button')
-  const div_outer = make_element('div')
-  const div_inner = make_element('div')
+const add_userscripts_row_container = (callback) => {
+  const prev_sibling = unsafeWindow.document.querySelector(
+    `${constants.query_selector.userscripts_row_container_parent} > ${constants.query_selector.userscripts_row_container_prev_sibling}`
+  )
+  if (!prev_sibling) {
+    setTimeout(
+      function() {
+        add_userscripts_row_container(callback)
+      },
+      1000
+    )
+    return
+  }
+  // DOM is ready
 
-  div_inner.setAttribute('id', constants.element_id.transcoder_container)
-  div_outer.appendChild(div_inner)
+  let userscripts_row_container = get_userscripts_row_container()
+  if (userscripts_row_container) {
+    // container has already been added to DOM (by another userscript with common UI)
+    callback()
+    return
+  }
 
-  if (container) {
-    // DOM assertion passes
-    div_outer.setAttribute('style', constants.inline_css.transcoder_container.dom.outer)
-    div_inner.setAttribute('style', constants.inline_css.transcoder_container.dom.inner)
+  userscripts_row_container = make_element('div')
+  userscripts_row_container.setAttribute('id',    constants.element_id.userscripts_row_container)
+  userscripts_row_container.setAttribute('style', constants.inline_css.userscripts_row_container)
 
-    container.parentElement.appendChild(div_outer)
+  if (prev_sibling.nextSibling) {
+    prev_sibling.parentNode.insertBefore(userscripts_row_container, prev_sibling.nextSibling)
   }
   else {
-    // fallback
-    div_outer.setAttribute('style', constants.inline_css.transcoder_container.fallback.outer)
-    div_inner.setAttribute('style', constants.inline_css.transcoder_container.fallback.inner)
-
-    document.body.appendChild(div_outer)
+    prev_sibling.parentNode.appendChild(userscripts_row_container)
   }
-
-  return div_inner
+  callback()
 }
 
-const get_transcoder_container = () => document.getElementById(constants.element_id.transcoder_container) || add_transcoder_container()
+const get_userscripts_row_container = () => unsafeWindow.document.querySelector(`${constants.query_selector.userscripts_row_container_parent} > div#${constants.element_id.userscripts_row_container}`)
+
+// ----------------------------------------------------------------------------- DOM: container element for transcoder
+
+const add_transcoder_container = () => {
+  const userscripts_row_container = get_userscripts_row_container()
+  const max_width = userscripts_row_container.parentElement.clientWidth
+  const min_width = Math.floor(max_width / 4)
+
+  const transcoder_container = make_element('div', `
+    <button style="${constants.inline_css.close_button}">
+      <span>${constants.button_text.close_button}</span>
+    </button>
+    <div></div>
+  `)
+  transcoder_container.setAttribute('id',    constants.element_id.transcoder_container)
+  transcoder_container.setAttribute('style', constants.inline_css.transcoder_container + ` max-width: ${max_width}px; min-width: ${min_width}px;`)
+  transcoder_container.querySelector('button').addEventListener('click', hide_transcoder_container.bind(null, transcoder_container))
+
+  if (userscripts_row_container.childNodes.length) {
+    userscripts_row_container.insertBefore(transcoder_container, userscripts_row_container.childNodes[0])
+  }
+  else {
+    userscripts_row_container.appendChild(transcoder_container)
+  }
+
+  return transcoder_container
+}
+
+const get_transcoder_container = () => unsafeWindow.document.getElementById(constants.element_id.transcoder_container) || add_transcoder_container()
 
 const hide_transcoder_container = (transcoder_container) => {
   if (!transcoder_container)
@@ -214,22 +251,25 @@ const show_transcoder_container = (transcoder_container) => {
   transcoder_container.style.display = 'block'
 }
 
+const update_transcoder_container = (transcoder_container, html) => {
+  if (!transcoder_container)
+    transcoder_container = get_transcoder_container()
+
+  const inner_div = transcoder_container.querySelector(':scope > div')
+  if (inner_div)
+    empty_element(inner_div, html)
+}
+
 // ----------------------------------------------------------------------------- DOM: button to display transcoder options
 
-const add_transcode_media_button = () => {
-  const transcoder_container = get_transcoder_container()
-  hide_transcoder_container(transcoder_container)
+const add_show_transcoder_options_button = () => {
+  const userscripts_row_container = get_userscripts_row_container()
 
-  empty_element(transcoder_container, `
-    <button style="${constants.inline_css.button}">
-      <span>${constants.button_text.transcode_media}</span>
-    </button>
-  `)
+  const show_transcoder_options_button = make_element('button', `<span>${constants.button_text.show_transcoder_options}</span>`)
+  show_transcoder_options_button.setAttribute('style', constants.inline_css.text_button)
+  show_transcoder_options_button.addEventListener('click', show_transcoder_options)
 
-  // attach event handler to button
-  transcoder_container.querySelector('button').addEventListener('click', show_transcoder_options)
-
-  show_transcoder_container(transcoder_container)
+  userscripts_row_container.appendChild(show_transcoder_options_button)
 }
 
 // ----------------------------------------------------------------------------- DOM: transcoder options
@@ -240,7 +280,7 @@ const show_transcoder_options = (event) => {
   const transcoder_container = get_transcoder_container()
   hide_transcoder_container(transcoder_container)
 
-  empty_element(transcoder_container, `
+  update_transcoder_container(transcoder_container, `
     <table style="${constants.inline_css.table_transcoder_options}">
       <tr valign="middle">
         <td>${constants.notification_text.select_video_format_label}</td>
@@ -252,14 +292,14 @@ const show_transcoder_options = (event) => {
       </tr>
       <tr valign="middle">
         <td colspan="2" align="center">
-          <button id="${constants.element_id.button_copy_and_combine}" style="${constants.inline_css.button}">
+          <button id="${constants.element_id.button_copy_and_combine}" style="${constants.inline_css.text_button}">
             <span>${constants.button_text.copy_and_combine}</span>
           </button>
         </td>
       </tr>
       <tr valign="middle">
         <td colspan="2" align="center">
-          <button id="${constants.element_id.button_resample}" style="${constants.inline_css.button}">
+          <button id="${constants.element_id.button_resample}" style="${constants.inline_css.text_button}">
             <span>${constants.button_text.resample}</span>
           </button>
         </td>
@@ -300,7 +340,7 @@ const show_transcoder_progress = (transcoder_container, show_video_downloader, s
   if (!transcoder_container)
     transcoder_container = get_transcoder_container()
 
-  empty_element(transcoder_container, `
+  update_transcoder_container(transcoder_container, `
     <table style="${constants.inline_css.table_transcoder_progress}">
       <tr>
         <th></th>
@@ -355,7 +395,7 @@ const show_transcoder_progress = (transcoder_container, show_video_downloader, s
 const update_transcoder_progress = (id, event) => {
   debug(event, true)
   if (event && (typeof event === 'object') && (typeof event.progress === 'number')) {
-    const $progress = document.getElementById(id)
+    const $progress = unsafeWindow.document.getElementById(id)
     const $label    = $progress.nextSibling
     $progress.value = event.progress
     $label.textContent = ' ' + (Math.floor(event.progress * 10000) / 100) + ' %'  // round to 2 decimal places
@@ -365,8 +405,8 @@ const update_transcoder_progress = (id, event) => {
 const update_transcoder_output = (event) => {
   debug(event)
   if (user_options.displayOutput && event && (typeof event === 'object') && ((event.type === 'stdout') || (event.type === 'stderr')) && event.message) {
-    document.getElementById(constants.element_id.pre_transcoder_output).appendChild(
-      document.createTextNode(event.message + "\n")
+    unsafeWindow.document.getElementById(constants.element_id.pre_transcoder_output).appendChild(
+      unsafeWindow.document.createTextNode(event.message + "\n")
     )
   }
 }
@@ -375,9 +415,9 @@ const show_transcoder_result = (output_file, output_url, transcoder_container) =
   if (!transcoder_container)
     transcoder_container = get_transcoder_container()
 
-  empty_element(transcoder_container, `
+  update_transcoder_container(transcoder_container, `
     <a href="${output_url}" download="${output_file}">
-      <button style="${constants.inline_css.button}">
+      <button style="${constants.inline_css.text_button}">
         <span>${constants.button_text.save_result}</span>
       </button>
     </a>
@@ -498,8 +538,8 @@ const fetchFilesConcurrent = (list) => {
 const transcode_copy_and_combine = async (event) => {
   cancel_event(event)
 
-  const video_format_itag = Number( document.getElementById(constants.element_id.select_video_format).value )
-  const audio_format_itag = Number( document.getElementById(constants.element_id.select_audio_format).value )
+  const video_format_itag = Number( unsafeWindow.document.getElementById(constants.element_id.select_video_format).value )
+  const audio_format_itag = Number( unsafeWindow.document.getElementById(constants.element_id.select_audio_format).value )
 
   if (!video_format_itag || !audio_format_itag) return
 
@@ -552,7 +592,7 @@ const transcode_copy_and_combine = async (event) => {
 const transcode_resample = async (event) => {
   cancel_event(event)
 
-  const audio_format_itag = Number( document.getElementById(constants.element_id.select_audio_format).value )
+  const audio_format_itag = Number( unsafeWindow.document.getElementById(constants.element_id.select_audio_format).value )
   if (!audio_format_itag) return
 
   const audio_format = state.formats.find(format => format.itag === audio_format_itag)
@@ -694,36 +734,40 @@ catch(e) {}
 
 // ----------------------------------------------------------------------------- bootstrap
 
-const init = async () => {
+const page_init = () => {
   debug('starting to initialize..')
   add_default_trusted_type_policy()
 
-  const ytdl = new window.Ytdl.YtdlCore({
-    logDisplay: ['debug', 'info', 'success', 'warning', 'error'],
-    disableInitialSetup: false,
-    disableBasicCache: true,
-    disableFileCache: true,
-    disablePoTokenAutoGeneration: true,
-    noUpdate: true
+  add_userscripts_row_container(async () => {
+    const ytdl = new window.Ytdl.YtdlCore({
+      logDisplay: ['debug', 'info', 'success', 'warning', 'error'],
+      disableInitialSetup: false,
+      disableBasicCache: true,
+      disableFileCache: true,
+      disablePoTokenAutoGeneration: true,
+      noUpdate: true
+    })
+
+    let info = await ytdl.getFullInfo(window.location.href)
+    if (!info || !info.formats || !info.formats.length) return
+
+    state.formats = info.formats
+    info = null
+
+    // important: perform normalization BEFORE removing duplicates
+    await validate_formats_async()
+    normalize_formats()
+    dedupe_formats()
+    debug('number of formats that are both distinct and available: ' + state.formats.length)
+
+    if (state.formats && state.formats.length) {
+      add_show_transcoder_options_button()
+    }
   })
-
-  let info = await ytdl.getFullInfo(window.location.href)
-  if (!info || !info.formats || !info.formats.length) return
-
-  state.formats = info.formats
-  info = null
-
-  // important: perform normalization BEFORE removing duplicates
-  await validate_formats_async()
-  normalize_formats()
-  dedupe_formats()
-  debug('number of formats that are both distinct and available: ' + state.formats.length)
-
-  add_transcode_media_button()
 }
 
 if (window.Ytdl && window.Ytdl.YtdlCore && window.FFmpegWASM && window.fetchProgress) {
-  init()
+  page_init()
 }
 
 // -----------------------------------------------------------------------------

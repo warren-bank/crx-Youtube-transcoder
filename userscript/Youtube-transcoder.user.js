@@ -6,7 +6,7 @@
 // @match        *://*.youtube.com/watch?v=*
 // @match        *://*.youtube.com/embed/*
 // @icon         https://www.youtube.com/favicon.ico
-// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@6.0.5-ybd-project.1/dist/es2020/ytdl-core.js
+// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@6.0.8-ybd-project.1/dist/es2020/ytdl-core.js
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-fetch-progress@1.0.0/src/fetch-progress.js
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.3/dist/umd/ffmpeg.js
 // @resource     classWorkerURL  https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.3/dist/umd/258.ffmpeg.js

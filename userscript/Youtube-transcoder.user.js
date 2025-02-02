@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.4.4
+// @version      2.4.5
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://*.youtube.com/watch?v=*
 // @match        *://*.youtube.com/embed/*
 // @icon         https://www.youtube.com/favicon.ico
-// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@6.0.8-ybd-project.1/dist/es2020/ytdl-core.js
+// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@4.16.0-distubejs.1/dist/es2020/ytdl-core.js
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-fetch-progress@1.0.0/src/fetch-progress.js
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.3/dist/umd/ffmpeg.js
 // @resource     classWorkerURL  https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.3/dist/umd/258.ffmpeg.js
@@ -86,11 +86,18 @@ const constants = {
 // ----------------------------------------------------------------------------- state
 
 const state = {
+  library:      null, // string
   formats:      null, // Array of Object
   wasmBinary:   null, // ArrayBuffer
   ffmpegOutput: null, // ArrayBuffer
   ffmpegFormat: null  // string: MIME-type
 }
+
+if (!state.library && window.Ytdl && window.Ytdl.YtdlCore)
+  state.library = 'ybd-project'
+
+if (!state.library && window.ytdl)
+  state.library = 'distubejs'
 
 // ----------------------------------------------------------------------------- sanitize config options
 
@@ -313,7 +320,7 @@ const show_transcoder_options = (event) => {
   html = state.formats
     .filter(format => !!format.hasVideo)
     .sort((a, b) => b.bitrate - a.bitrate)
-    .map(format => `<option value="${format.itag}">${format.container} @ ${Math.floor(format.bitrate / 1000)} kbps, ${format.quality?.label || format.quality?.text || ''}</option>`)
+    .map(format => `<option value="${format.itag}">${format.container} @ ${Math.floor(format.bitrate / 1000)} kbps, ${format.qualityLabel || format.quality || ''}</option>`)
   html.unshift('<option value="">[none]</option>')
   transcoder_container.querySelector('#' + constants.element_id.select_video_format).innerHTML = html.join("\n")
 
@@ -692,11 +699,81 @@ const validate_formats_async = () => new Promise(resolve => {
 
 // ----------------------------------------------------------------------------- format data structure: normalization
 
+const mime_filetype_regex = /^(?:audio|video)\/([^;]+)(?:;.*)?$/
+
+const copy_format_keys = (src, dst, keys) => {
+  for (let key of keys) {
+    dst[key] = src[key]
+  }
+}
+
 const normalize_formats = () => {
   if (!state.formats || !state.formats.length) return
 
   state.formats = state.formats
-    .filter(format => !!format && (typeof format === 'object') && format.url && (format.hasVideo || format.hasAudio))
+    .filter(format => !!format && (typeof format === 'object') && format.url && format.mimeType)
+    .map(old_format => {
+      const new_format = {}
+
+      copy_format_keys(old_format, new_format, [
+        'audioBitrate',
+        'bitrate',
+        'container',
+        'hasAudio',
+        'hasVideo',
+        'isDashMPD',
+        'isHLS',
+        'itag',
+        'mimeType',
+        'url'
+      ])
+
+      if (new_format.isHLS) {
+        new_format.mimeType = 'application/x-mpegurl'
+        new_format.url += '#video.m3u8'
+      }
+      else if (new_format.isDashMPD) {
+        new_format.mimeType = 'application/dash+xml'
+        new_format.url += '#video.mpd'
+      }
+      else {
+        new_format.mimeType = new_format.mimeType.split(';')[0].trim()
+
+        if (!new_format.container && mime_filetype_regex.test(new_format.mimeType))
+          new_format.container = new_format.mimeType.replace(mime_filetype_regex, '$1')
+
+        if (new_format.container)
+          new_format.url += '#file.' + new_format.container
+      }
+
+      switch(state.library) {
+        case 'ybd-project': {
+            if (old_format.codec && (typeof old_format.codec === 'object')) {
+              new_format.audioCodec = old_format.codec.audio
+              new_format.videoCodec = old_format.codec.video
+            }
+
+            if (old_format.quality && (typeof old_format.quality === 'object')) {
+              new_format.qualityLabel = old_format.quality.label
+              new_format.quality      = old_format.quality.text
+            }
+          }
+          break
+
+        case 'distubejs': {
+            copy_format_keys(old_format, new_format, [
+              'audioSampleRate',
+              'audioCodec',
+              'videoCodec',
+              'qualityLabel',
+              'quality'
+            ])
+          }
+          break
+      }
+
+      return new_format
+    })
     .sort((a,b) => {
       // sort formats by bitrate in decreasing order
       return (a.bitrate < b.bitrate)
@@ -739,21 +816,35 @@ const page_init = () => {
   add_default_trusted_type_policy()
 
   add_userscripts_row_container(async () => {
-    const ytdl = new window.Ytdl.YtdlCore({
-      logDisplay: ['debug', 'info', 'success', 'warning', 'error'],
-      disableInitialSetup: false,
-      disableBasicCache: true,
-      disableFileCache: true,
-      disablePoTokenAutoGeneration: true,
-      noUpdate: true
-    })
+    let info
 
-    let info = await ytdl.getFullInfo(window.location.href)
+    switch(state.library) {
+      case 'ybd-project': {
+          const ytdl = new window.Ytdl.YtdlCore({
+            logDisplay: ['debug', 'info', 'success', 'warning', 'error'],
+            disableInitialSetup: false,
+            disableBasicCache: true,
+            disableFileCache: true,
+            disablePoTokenAutoGeneration: true,
+            noUpdate: true
+          })
+
+          info = await ytdl.getFullInfo(window.location.href)
+        }
+        break
+
+      case 'distubejs': {
+          info = await window.ytdl.getInfo(window.location.href)
+        }
+        break
+    }
+
     if (!info || !info.formats || !info.formats.length) return
 
     state.formats = info.formats
     info = null
 
+    // important: perform validation BEFORE normalization
     // important: perform normalization BEFORE removing duplicates
     await validate_formats_async()
     normalize_formats()
@@ -766,7 +857,7 @@ const page_init = () => {
   })
 }
 
-if (window.Ytdl && window.Ytdl.YtdlCore && window.FFmpegWASM && window.fetchProgress) {
+if (state.library && window.FFmpegWASM && window.fetchProgress) {
   page_init()
 }
 

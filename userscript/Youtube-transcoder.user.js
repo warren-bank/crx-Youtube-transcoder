@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Youtube transcoder
 // @description  Use ffmpeg.wasm to transcode Youtube media streams. Option #1: copy and combine video with audio to mp4. Options #2: resample and convert audio to mp3.
-// @version      2.4.5
+// @version      2.4.6
 // @match        *://youtube.googleapis.com/v/*
 // @match        *://*.youtube.com/watch?v=*
 // @match        *://*.youtube.com/embed/*
 // @icon         https://www.youtube.com/favicon.ico
-// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@4.16.0-distubejs.1/dist/es2020/ytdl-core.js
+// @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-ytdl-core@v4.16.5-neder11ndeu-f56b052.1/dist/es2020/ytdl-core.js
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/browser-fetch-progress@1.0.0/src/fetch-progress.js
 // @require      https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.3/dist/umd/ffmpeg.js
 // @resource     classWorkerURL  https://cdn.jsdelivr.net/npm/@warren-bank/ffmpeg@0.12.10-wasmbinary.3/dist/umd/258.ffmpeg.js
